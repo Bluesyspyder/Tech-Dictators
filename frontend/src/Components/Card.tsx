@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import MapPicker from "./MapPicker";
+import PincodeInput from "./PincodeInput";
 
 interface PredictionResult {
   title: string;
@@ -13,17 +14,17 @@ interface PredictionResult {
 
 const PREDICTION_API_URL =
   import.meta.env.VITE_PREDICTION_API_URL || "http://localhost:8000/predict";
-const WEATHER_API_KEY = import.meta.env.VITE_OPENWEATHER_API_KEY || "";
+const BACKEND_URL = "http://localhost:3000";
 
 const Card: React.FC = () => {
   const [formData, setFormData] = useState({
     orderedBefore: "",
     weather: "",
-    location: "",
     traffic: "",
     pincode: "",
   });
   const [mapPosition, setMapPosition] = useState<[number, number] | null>(null);
+  const [locationDetails, setLocationDetails] = useState<{ city: string; state: string } | null>(null);
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [weatherLoading, setWeatherLoading] = useState(false);
@@ -56,41 +57,34 @@ const Card: React.FC = () => {
   };
 
   const fetchWeather = async (lat: number, lng: number) => {
-    if (!WEATHER_API_KEY) {
-      setWeatherInfo("Weather API key not configured");
-      setFormData(prev => ({ ...prev, weather: prev.weather || "cloudy" }));
-      return;
-    }
-
     setWeatherLoading(true);
     try {
       const response = await fetch(
-        `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&appid=${WEATHER_API_KEY}`
+        `${BACKEND_URL}/locations/weather?latitude=${lat}&longitude=${lng}`
       );
 
+      const result = await response.json();
+      
       if (!response.ok) {
-        throw new Error("Weather API error");
+        console.error("Weather API error response:", result);
+        throw new Error(result.error || "Weather API error");
       }
 
-      const data = await response.json();
-      const weatherMain = data.weather[0].main.toLowerCase();
-      const description = data.weather[0].description;
-
-      let mappedWeather = "cloudy";
-      if (weatherMain.includes("rain") || weatherMain.includes("drizzle")) {
-        mappedWeather = "rainy";
-      } else if (weatherMain.includes("clear") || weatherMain.includes("sunny")) {
-        mappedWeather = "sunny";
-      } else if (weatherMain.includes("cloud")) {
-        mappedWeather = "cloudy";
+      if (!result.success || !result.data) {
+        throw new Error("Invalid weather response");
       }
 
-      setFormData(prev => ({ ...prev, weather: mappedWeather }));
+      const data = result.data;
+      const weather = data.weather; // Already mapped by backend
+      const description = data.description;
+      const temperature = data.temperature;
+
+      setFormData(prev => ({ ...prev, weather }));
       setWeatherInfo(
-        `${description.charAt(0).toUpperCase() + description.slice(1)} (${Math.round(data.main.temp - 273.15)} deg C)`
+        `${description.charAt(0).toUpperCase() + description.slice(1)} (${temperature}°C)`
       );
 
-      console.log("Weather fetched:", mappedWeather, `(${description})`);
+      console.log("Weather fetched:", weather, `(${description})`);
     } catch (error) {
       console.error("Weather fetch error:", error);
       setWeatherInfo("Unable to fetch weather");
@@ -106,15 +100,31 @@ const Card: React.FC = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const handleLocationFound = (lat: number, lng: number, city: string, state: string) => {
+    console.log("Location found:", { lat, lng, city, state });
+    setMapPosition([lat, lng]);
+    setLocationDetails({ city, state });
+    fetchWeather(lat, lng);
+    fetchPincode(lat, lng);
+    
+    // Scroll down to show the map after animation starts
+    setTimeout(() => {
+      window.scrollBy({
+        top: 500,
+        behavior: "smooth"
+      });
+    }, 500);
+  };
+
   const handleClear = () => {
     setFormData({
       orderedBefore: "",
       weather: "",
-      location: "",
       traffic: "",
       pincode: "",
     });
     setMapPosition(null);
+    setLocationDetails(null);
     setResult(null);
     setWeatherInfo("");
   };
@@ -125,7 +135,6 @@ const Card: React.FC = () => {
     const missingFields = [];
     if (!formData.orderedBefore) missingFields.push("Customer order history");
     if (!formData.traffic) missingFields.push("Traffic level");
-    if (!mapPosition) missingFields.push("Location (click on map)");
     if (!formData.weather) missingFields.push("Weather data");
 
     if (missingFields.length > 0) {
@@ -269,41 +278,25 @@ const Card: React.FC = () => {
 
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-300">
-            Delivery address selected from map
+            Search by Pincode
           </label>
-          <p className="mb-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-slate-200">
-            {mapPosition
-              ? `Selected location: ${mapPosition[0].toFixed(4)}, ${mapPosition[1].toFixed(4)}`
-              : "Click on the map below to choose a stop location."}
-          </p>
-          <input
-            type="text"
-            name="location"
-            value={formData.location}
-            onChange={handleChange}
-            placeholder="Or type an address manually"
-            className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-violet-400"
+          <PincodeInput
+            onLocationFound={handleLocationFound}
+            loading={pincodeLoading || weatherLoading}
           />
+          {locationDetails && (
+            <div className="mt-3 rounded-2xl border border-violet-500/20 bg-violet-900/10 px-4 py-3">
+              <p className="text-sm text-violet-200">
+                📍 <strong>{locationDetails.city}, {locationDetails.state}</strong>
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                Coordinates: {mapPosition?.[0].toFixed(4)}, {mapPosition?.[1].toFixed(4)}
+              </p>
+            </div>
+          )}
         </div>
 
-        <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">Pincode</label>
-          <div className="flex w-full items-center justify-between rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 text-slate-100">
-            <p className="text-slate-200">
-              {pincodeLoading
-                ? "Fetching pincode..."
-                : formData.pincode
-                  ? formData.pincode
-                  : "Select location on map"}
-            </p>
-            {pincodeLoading && (
-              <span className="animate-pulse text-xs text-violet-400">Loading...</span>
-            )}
-          </div>
-          <p className="mt-2 text-xs text-slate-500">
-            Auto-filled when you select location on map
-          </p>
-        </div>
+
 
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-300">
@@ -313,7 +306,7 @@ const Card: React.FC = () => {
             <p className="text-slate-200">
               {weatherLoading
                 ? "Fetching weather..."
-                : weatherInfo || "Select location on map"}
+                : weatherInfo || "Enter a pincode to get weather"}
             </p>
             {weatherLoading && (
               <span className="animate-pulse text-xs text-violet-400">Loading...</span>
@@ -322,18 +315,16 @@ const Card: React.FC = () => {
           <p className="mt-2 text-xs text-slate-500">Auto-detected from selected location</p>
         </div>
 
-        <MapPicker
-          position={mapPosition}
-          onSelect={(lat, lng) => {
-            setMapPosition([lat, lng]);
-            setFormData(prev => ({
-              ...prev,
-              location: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
-            }));
-            fetchWeather(lat, lng);
-            fetchPincode(lat, lng);
-          }}
-        />
+        <div>
+          <MapPicker
+            position={mapPosition}
+            onSelect={(lat, lng) => {
+              setMapPosition([lat, lng]);
+              fetchWeather(lat, lng);
+              fetchPincode(lat, lng);
+            }}
+          />
+        </div>
 
         <button
           type="submit"
@@ -358,13 +349,6 @@ const Card: React.FC = () => {
               <p className="text-sm text-slate-400">Prediction Summary</p>
               <p className="mt-3 text-xl font-semibold">{result.title}</p>
               <p className="mt-2 text-sm text-slate-400">{result.summary}</p>
-            </div>
-            <div className="text-right text-xs text-slate-500">
-              {mapPosition && (
-                <div className="text-slate-400">
-                  <p>Location: {mapPosition[0].toFixed(4)}, {mapPosition[1].toFixed(4)}</p>
-                </div>
-              )}
             </div>
           </div>
 

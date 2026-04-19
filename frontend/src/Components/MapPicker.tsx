@@ -26,9 +26,13 @@ const MapPicker: React.FC<MapPickerProps> = ({ position, onSelect }) => {
     if (!mapElement.current) return;
 
     if (!mapInstance.current) {
+      // Start with India center if no position initially
+      const initialCenter: [number, number] = [20.5937, 78.9629];
+      const initialZoom = 4;
+
       mapInstance.current = L.map(mapElement.current, {
-        center: position ?? [20, 0],
-        zoom: position ? 8 : 2,
+        center: initialCenter,
+        zoom: initialZoom,
         scrollWheelZoom: true,
       });
 
@@ -41,19 +45,19 @@ const MapPicker: React.FC<MapPickerProps> = ({ position, onSelect }) => {
         onSelect(event.latlng.lat, event.latlng.lng);
       });
     }
-  }, [onSelect, position]);
+  }, [onSelect]);
 
   useEffect(() => {
-    if (!mapInstance.current) return;
+    if (!mapInstance.current || !position) return;
 
-    if (position) {
-      // Use flyTo for a smooth animation and better zoom level (13) for a specific pincode location
-      mapInstance.current.flyTo(position, 13, { duration: 1.5 });
-      if (!markerRef.current) {
-        markerRef.current = L.marker(position, { icon: markerIcon }).addTo(mapInstance.current);
-      } else {
-        markerRef.current.setLatLng(position);
-      }
+    // Animate to the new position
+    console.log("Flying to position:", position);
+    mapInstance.current.flyTo(position, 13, { duration: 1.5 });
+    
+    if (!markerRef.current) {
+      markerRef.current = L.marker(position, { icon: markerIcon }).addTo(mapInstance.current);
+    } else {
+      markerRef.current.setLatLng(position);
     }
   }, [position]);
 
